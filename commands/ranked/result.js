@@ -1,6 +1,9 @@
 const { SlashCommandBuilder, PermissionFlagsBits} = require('discord.js');
-const Database = require("@replit/database");
-const db = new Database()
+const { Pool } = require('pg');
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+});
 
 function expectedProbability(ratingA, ratingB) {
   return 1 / (1 + Math.pow(10, (ratingB - ratingA) / 400));
@@ -33,14 +36,12 @@ data: new SlashCommandBuilder()
       .setRequired(true))
   .setDefaultMemberPermissions(PermissionFlagsBits.EditChannels),
 async execute(interaction) {
-  const winnerid = interaction.options.getUser('winner');
-  const loserid = interaction.options.getUser('loser');
-  const winner = winnerid.username;
-  const loser = loserid.username;
+  const winner = interaction.options.getUser('winner').username;
+  const loser = interaction.options.getUser('loser').username;
   try{
-    const lb = await db.get('lb') || [];
-    winnerlb = lb.find(person => person.name === winner);
-    loserlb = lb.find(person => person.name === loser);
+    const client = await pool.connect();
+    const winnerlb = await client.query('SELECT name, elo FROM players WHERE name = $1', [winner]);
+    const loserlb = await client.query('SELECT name, elo FROM players WHERE name = $1', [loser]);
     if (!winnerlb || !loserlb) {
       await interaction.reply('One of the players is not registered on the ranked scoreboard.');
       return;
@@ -48,11 +49,8 @@ async execute(interaction) {
   winnerelo = winnerlb.elo;
   loserelo = loserlb.elo;
   [winnerelo, loserelo] = updateElo(winnerelo, loserelo, 1);
-    winnerlb.elo = winnerelo;
-    winnerlb.wins += 1;
-    loserlb.elo = loserelo;
-    loserslb.losses += 1;
-    await db.set('lb', lb);
+  await client.query('UPDATE players SET wins = wins + 1, elo = $1 WHERE name = $2', [winnerelo, winner]);
+  await client.query('UPDATE players SET elo = $1 WHERE name = $2', [loserelo, loser]);
         await interaction.reply(`Successfully updated the ranked scoreboard.`);
       } catch (error) {
         console.error('Error:', error);

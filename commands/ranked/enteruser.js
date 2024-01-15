@@ -1,6 +1,10 @@
 const { SlashCommandBuilder, PermissionFlagsBits} = require('discord.js');
-const Database = require("@replit/database");
-const db = new Database()
+const { Pool } = require('pg');
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+});
+
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -12,28 +16,30 @@ module.exports = {
         .setRequired(true))
     .setDefaultMemberPermissions(PermissionFlagsBits.EditChannels),
   async execute(interaction) {
-     const user = interaction.options.getUser('user');
+
+    const client = await pool.connect();
+    const user = interaction.options.getUser('user');
     const name = user.username;
       try {
-    // Retrieve the ladder array from the database
-    const lb = await db.get('lb') || [];
 
     // Check if the user with the same name already exists in the ladder
-    const existingUser = lb.find((person) => person.name === name);
+    const result = await client.query('SELECT COUNT(*) FROM players WHERE name = $1', [name]);
 
-    if (!existingUser) {
-      const newUser = { name, elo: 1000, wins: 0, losses: 0 };
-      lb.push(newUser);
+    if (!result.rows[0].count > 0) {
 
-      // Update the ladder array in the database
-      await db.set('lb', lb);
-      await interaction.reply(`Added <@${user.id}> to the ranked leaderboard!.`);
+    //Insert new user
+    const result = await client.query('INSERT INTO players (name, elo, wins) VALUES ($1, 1000, 0) RETURNING *', [name]);
+      
+      await interaction.reply(`Added <@${result.rows[0].name}> to the ranked leaderboard!.`);
     } else {
       await interaction.reply(`User <@${user.id}> is already registered!.`);
     }
   } catch (error) {
     console.log('Error:', error);
     await interaction.reply('Error:', error);
+  }
+  finally {
+    client.release();
   }
 
   },
